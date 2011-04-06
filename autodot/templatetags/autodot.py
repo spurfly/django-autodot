@@ -1,10 +1,9 @@
 import json
 from django import template
-from django.template.defaulttags import IfNode, WithNode, ForNode
+from django.template.defaulttags import IfNode, WithNode, ForNode, do_if, do_for, do_with
 from django.core.files.base import ContentFile
 
 #avoidable but non-problematic dependency on django-compressor
-from compressor.cache import cache
 from compressor.conf import settings
 
 OUTPUT_FILE = 'file'
@@ -12,7 +11,7 @@ OUTPUT_INLINE = 'inline'
 
 register = template.Library()
 
-class AuodotContextMember(object):
+class AutodotContextMember(object):
     def __init__(self, name):
         self.name = name
         
@@ -122,10 +121,85 @@ class AutodotNode(template.Node):
         
 class JsNode(object):
     def render(self, context):
-        if context.get("AS_AUTOROOT", None):
+        print "here"
+        if context.get("AS_AUTODOT", None):
+            print "h2"
             return self.render_js(context)
         return super(JsNode,self).render(context)
         
+
+class ForjsNode(JsNode, ForNode):
+    template = "{{ var %s; for (var i=0; i < %s.length; i++) { %s = %s[i] }}%s{{ }; }}"
+    def render_js(self, context):
+        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        seq = seqname.split(".",1)
+        if len(seq) == 2:
+            root, branch = seq
+            try:
+                root = context.get(root)
+            except:
+                pass
+            seq = ".".join((root, branch))
+        else:
+            try:
+                seq = context.get(seq)
+            except:
+                pass
+        assert len(loopvars) == 1
+        return self.template % (loopvars[0], seq, loopvars[0], seq,
+                                     self.nodelist_loop.render(context),
+                                     )
+
+class WithjsNode(JsNode, WithNode):
+    def render_js(self, context):
+        return
+        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        seq = seqname.split(".",1)
+        if len(seq) == 2:
+            root, branch = seq
+            try:
+                root = context.get(root)
+            except:
+                pass
+            seq = ".".join((root, branch))
+        else:
+            try:
+                seq = context.get(seq)
+            except:
+                pass
+        assert len(loopvars) == 1
+        return "{{ var %s=%s; }}%s{{ }; }}" % (
+                                    loopvar[0],seq,loopvar[0],seq,
+                                     self.nodelist_loop.render(context),
+                                     )
+
+class IfjsNode(JsNode, IfNode):
+    def render_js(self, context):
+        print "ifjs render_js"
+        varname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        var = varname.split(".",1)
+        if len(var) == 2:
+            root, branch = var
+            try:
+                root = context.get(root)
+            except:
+                pass
+            var = ".".join((root, branch))
+        else:
+            try:
+                var = context.get(var)
+            except:
+                pass
+        if self.nodelist_false: #has else clause
+            return "{{ if (%s && !_.isempty(%s)) { }}%s{{ } else { }}%s{{ }; }}" % (var,var,
+                                     self.nodelist_true.render(context),
+                                     self.nodelist_false.render(context),
+                                     )
+        else:
+            return "{{ if (%s && !_.isempty(%s)) { }}%s{{ }; }}" % (var,var,
+                                     self.nodelist_true.render(context),
+                                     )
+
 
 @register.tag(name="ifjs")
 def do_ifjs(parser, token):
@@ -163,75 +237,3 @@ def do_forjs(parser, token):
     thenode = do_for(parser, token)
     thenode.__class__ = ForjsNode
     return thenode
-
-
-class ForjsNode(JsNode, ForNode):
-    template = "{{ var %s; for (var i=0; i < %s.length; i++) { %s = %s[i] }}%s{{ }; }}"
-    def render_js(self, context):
-        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        seq = seqname.split(".",1)
-        if len(seq) == 2:
-            root, branch = seq
-            try:
-                root = context.get(root)
-            except:
-                pass
-            seq = ".".join((root, branch))
-        else:
-            try:
-                seq = context.get(seq)
-            except:
-                pass
-        assert len(loopvars) == 1
-        return self.template.format(loopvars[0], seq, loopvars[0], seq,
-                                     self.nodelist_loop.render(context),
-                                     )
-
-class WithjsNode(JsNode, WithNode):
-    def render_js(self, context):
-        return
-        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        seq = seqname.split(".",1)
-        if len(seq) == 2:
-            root, branch = seq
-            try:
-                root = context.get(root)
-            except:
-                pass
-            seq = ".".join((root, branch))
-        else:
-            try:
-                seq = context.get(seq)
-            except:
-                pass
-        assert len(loopvars) == 1
-        return "{{ var %s=%s; }}%s{{ }; }}".format(
-                                    loopvar[0],seq,loopvar[0],seq,
-                                     self.nodelist_loop.render(context),
-                                     )
-
-class IfjsNode(JsNode, IfNode):
-    def render_js(self, context):
-        varname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        var = varname.split(".",1)
-        if len(var) == 2:
-            root, branch = var
-            try:
-                root = context.get(root)
-            except:
-                pass
-            var = ".".join((root, branch))
-        else:
-            try:
-                var = context.get(var)
-            except:
-                pass
-        if self.nodelist_false: #has else clause
-            return "{{ if (%s && !_.isempty(%s)) { }}%s{{ } else { }}%s{{ }; }}".format(var,var,
-                                     self.nodelist_true.render(context),
-                                     self.nodelist_false.render(context),
-                                     )
-        else:
-            return "{{ if (%s && !_.isempty(%s)) { }}%s{{ }; }}".format(var,var,
-                                     self.nodelist_true.render(context),
-                                     )
