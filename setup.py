@@ -8,39 +8,35 @@ README = read('README.rst')
 
 setup(
     name = "django_compressor",
-    version = "0.6a8",
-    url = 'http://github.com/mintchaos/django_compressor',
+    version = "0.1",
+    url = 'http://github.com/spurfly/django-autodot',
     license = 'BSD',
-    description = "Compresses linked and inline javascript or CSS into a single cached file.",
+    description = "Automatically generates doT.js templates from parts of django ones.",
     long_description = README,
 
-    author = 'Christian Metts',
-    author_email = 'xian@mintchaos.com',
+    author = 'Jameson Quinn',
+    author_email = 'jameson.quinn@gmail.com',
     packages = [
-        'compressor',
-        'compressor.conf',
-        'compressor.filters',
-        'compressor.filters.jsmin',
-        'compressor.filters.cssmin',
-        'compressor.templatetags',
-        'compressor.management',
-        'compressor.management.commands',
+        'autodot',
+        'autodot.templatetags',
     ],
     package_data = {
-        'compressor': [
-                'templates/compressor/*.html',
+        'autodot': [
+                'templates/autodot/*.html',
             ],
     },
     install_requires = [
         'BeautifulSoup',
+        'django_compressor',
     ],
     classifiers = [
-        'Development Status :: 4 - Beta',
+        'Development Status :: 3 - Pre-Alpha',
         'Framework :: Django',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
+        'Programming Language :: JavaScript',
         'Topic :: Internet :: WWW/HTTP',
     ],
     zip_safe = False,

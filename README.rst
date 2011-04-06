@@ -71,7 +71,7 @@ Short version: Nothing else did exactly what I needed.
 
 Long version:
 
-**PURE.js and Pyjamas are too slow and bulky javascript.**
+**PURE.js and Pyjamas javascript are too slow and bulky .**
 
 **Because it's cool.**
 
