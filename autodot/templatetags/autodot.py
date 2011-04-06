@@ -1,7 +1,7 @@
 import os
 import json
 from django import template
-from django.template import Context, Template
+from django.template import Context, Template, TemplateSyntaxError
 from django.template.loader import render_to_string
 from django.template.defaulttags import IfNode, WithNode, ForNode, do_if, do_for, do_with
 from django.core.files.base import ContentFile
@@ -127,61 +127,17 @@ class AutodotNode(template.Node):
         
 class JsNode(object):
     def render(self, context):
-        print "here"
         if context.get("AS_AUTODOT", None):
-            print "h2"
             return self.render_js(context)
+        self.check_jsable_context(context)
         return super(JsNode,self).render(context)
+    
+    def check_jsable_context(self, context):
+        """Hook for error checking by subclasses"""
+        pass
         
-
-class ForjsNode(JsNode, ForNode):
-    template = "{{ var %s; for (var i=0; i < %s.length; i++) { %s = %s[i] }}%s{{ }; }}"
-    def render_js(self, context):
-        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        seq = seqname.split(".",1)
-        if len(seq) == 2:
-            root, branch = seq
-            try:
-                root = context.get(root)
-            except:
-                pass
-            seq = ".".join((root, branch))
-        else:
-            try:
-                seq = context.get(seq)
-            except:
-                pass
-        assert len(loopvars) == 1
-        return self.template % (loopvars[0], seq, loopvars[0], seq,
-                                     self.nodelist_loop.render(context),
-                                     )
-
-class WithjsNode(JsNode, WithNode):
-    def render_js(self, context):
-        return
-        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        seq = seqname.split(".",1)
-        if len(seq) == 2:
-            root, branch = seq
-            try:
-                root = context.get(root)
-            except:
-                pass
-            seq = ".".join((root, branch))
-        else:
-            try:
-                seq = context.get(seq)
-            except:
-                pass
-        assert len(loopvars) == 1
-        return "{{ var %s=%s; }}%s{{ }; }}" % (
-                                    loopvar[0],seq,loopvar[0],seq,
-                                     self.nodelist_loop.render(context),
-                                     )
-
 class IfjsNode(JsNode, IfNode):
     def render_js(self, context):
-        print "ifjs render_js"
         varname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
         var = varname.split(".",1)
         if len(var) == 2:
@@ -207,6 +163,58 @@ class IfjsNode(JsNode, IfNode):
                                      )
 
 
+class ForjsNode(JsNode, ForNode):
+    template = "{{ var %s; for (var i=0; i < %s.length; i++) { %s = %s[i] }}%s{{ }; }}"
+    dict_template = "{{ for %s in %s { }}%s{{ }; }}"
+    def render_js(self, context):
+        seqname = self.sequence.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        seq = seqname.split(".",1)
+        if len(seq) == 2:
+            root, branch = seq
+            try:
+                root = context.get(root)
+            except:
+                pass
+            seq = ".".join((root, branch))
+        else:
+            try:
+                seq = context.get(seq)
+            except:
+                pass
+        if len(self.loopvars) == 1:
+            return self.template % (self.loopvars[0], seq, self.loopvars[0], seq,
+                                         self.nodelist_loop.render(context),
+                                         )
+        if len(self.loopvars) == 2:
+            seq, items = seq.rsplit("",1) #do_forjs already checked that this works so items == "items"
+            context.push()
+            context[self.loopvars[1]] = AutodotContextMember("%s[%s]" % (seq, self.loopvars[0]))
+            output = self.dict_template % (self.loopvars[0], seq, self.nodelist_loop.render(context))
+            context.pop()
+            return output
+
+class WithjsNode(JsNode, WithNode):
+    def render_js(self, context):
+        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        seq = seqname.split(".",1)
+        if len(seq) == 2:
+            root, branch = seq
+            try:
+                root = context.get(root)
+            except:
+                pass
+            seq = ".".join((root, branch))
+        else:
+            try:
+                seq = context.get(seq)
+            except:
+                pass
+        assert len(loopvars) == 1
+        return "{{ var %s=%s; }}%s{{ }; }}" % (
+                                    self.name, seq,
+                                     self.nodelist.render(context),
+                                     )
+
 @register.tag(name="ifjs")
 def do_ifjs(parser, token):
     """
@@ -219,6 +227,28 @@ def do_ifjs(parser, token):
     thenode.__class__ = IfjsNode
     return thenode
 
+#@register.tag(name="forjs")
+def do_forjs(parser, token):
+    """
+    The ``{% forjs %}`` tag is like the `{% for %}` tag in django,
+    but it also attempts to do the same thing in the javascript template.
+    
+    Initial version: use at own risk.
+    """
+    thenode = do_for(parser, token)
+    if len(thenode.loopvars) == 2:
+        seqname = thenode.sequence.value.var.var
+        try:
+            seqname, items = seqname.rsplit("",1)
+        except:
+            items = "FAIL"
+        if items != "items":
+            raise TemplateSyntaxError("forjs can only unpack a dict's .items iterator")
+    elif len(thenode.loopvars) > 2:
+        raise TemplateSyntaxError("forjs can't unpack more than two items (a dict's .items iterator)")
+    thenode.__class__ = ForjsNode
+    return thenode
+
 @register.tag(name="withjs")
 def do_withjs(parser, token):
     """
@@ -229,17 +259,4 @@ def do_withjs(parser, token):
     """
     thenode = do_with(parser, token)
     thenode.__class__ = WithjsNode
-    return thenode
-
-
-#@register.tag(name="forjs")
-def do_forjs(parser, token):
-    """
-    The ``{% forjs %}`` tag is like the `{% for %}` tag in django,
-    but it also attempts to do the same thing in the javascript template.
-    
-    Initial version: use at own risk.
-    """
-    thenode = do_for(parser, token)
-    thenode.__class__ = ForjsNode
     return thenode
