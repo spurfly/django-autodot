@@ -75,7 +75,7 @@ class AutodotNode(template.Node):
         self.template = nodelist.render(Context({model_name: AutodotContextMember("it"),
                                          "AS_AUTODOT": True,
                                          }))
-        self.js = """%s_tmpl = %s;\n""" % (model_name, json.dumps(self.template))
+        self.js = """%s_tmpl = doT.template(%s);\n""" % (model_name, json.dumps(self.template))
         if self.mode == OUTPUT_FILE:
             self.save_file()
         
