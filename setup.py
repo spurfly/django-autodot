@@ -7,7 +7,7 @@ def read(fname):
 README = read('README.rst')
 
 setup(
-    name = "django_compressor",
+    name = "django_autodot",
     version = "0.1",
     url = 'http://github.com/spurfly/django-autodot',
     license = 'BSD',
