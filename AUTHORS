@@ -1,0 +1,23 @@
+Jameson Quinn
+
+David Marble
+
+The code for creating and saving scripts using a template tag comes from django_compressor. Authors include:
+Christian Metts
+
+Django Compressor's filters started life as the filters from Andreas Pelme's
+django-compress.
+
+Aaron Godfrey
+Atamert Ölçgen
+Ben Spaulding
+Benjamin Wohlwend
+Brad Whittington
+Carl Meyer
+Chris Adams
+David Ziegler
+Gert Van Gool
+Jannis Leidel
+Justin Lilly
+Maciek Szczesniak
+Mehmet S. Catalbas
