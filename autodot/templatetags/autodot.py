@@ -1,10 +1,14 @@
+import os
 import json
 from django import template
+from django.template import Context, Template
+from django.template.loader import render_to_string
 from django.template.defaulttags import IfNode, WithNode, ForNode, do_if, do_for, do_with
 from django.core.files.base import ContentFile
 
 #avoidable but non-problematic dependency on django-compressor
 from compressor.conf import settings
+from compressor.utils import get_hexdigest, get_mtime, get_class
 
 OUTPUT_FILE = 'file'
 OUTPUT_INLINE = 'inline'
@@ -32,7 +36,7 @@ def autodot(parser, token):
     <% autodot some.variable[path] as user %> - like <% withjs some.variable[path] as user %><% autodot user %>
     <% autodot some.variable[path] as user inline %> - as expected
     """
-    args = token.split_contents(None, 1)
+    args = token.split_contents()
     
     if not len(args) in (2, 3, 4, 5):
         raise template.TemplateSyntaxError("%r tag requires one to four arguments." % args[0])
@@ -41,7 +45,7 @@ def autodot(parser, token):
         if args[2] != "as":
             raise template.TemplateSyntaxError("%r tag with 3 or 4 arguments must be 'a as b'." % args[0])
         withsrc = (args[1], parser.compile_filter(args[1]))
-        args = args[:1] + args[4]
+        args = args[:1] + args[3:]
     else:
         withsrc = None
         
@@ -58,17 +62,19 @@ def autodot(parser, token):
     return AutodotNode(nodelist, model_name, mode, withsrc)
 
 class AutodotNode(template.Node):
-    extension = "js"
+    extension = ".js"
     output_prefix = "autodot"
+    template_name = "autodot/js.html"
+    template_name_inline = "autodot/js_inline.html"
     
     def __init__(self, nodelist, model_name, mode=OUTPUT_FILE, withsrc=None):
         self.nodelist = nodelist
         self.model_name = model_name
         self.mode = mode
         self.withsrc = withsrc
-        self.template = nodelist.render({model_name: AuodotContextMember("it"),
+        self.template = nodelist.render(Context({model_name: AutodotContextMember("it"),
                                          "AS_AUTODOT": True,
-                                         })
+                                         }))
         self.js = """%s_tmpl = %s;\n""" % (model_name, json.dumps(self.template))
         if self.mode == OUTPUT_FILE:
             self.save_file()
@@ -76,7 +82,7 @@ class AutodotNode(template.Node):
     def save_file(self):
         if self.storage.exists(self.new_filepath):
             return False
-        self.storage.save(self.new_filepath, ContentFile(self.js))
+        self.storage.save(self.new_filepath, ContentFile(self.js.encode("utf-8")))
         return True
     
     @property
@@ -108,14 +114,14 @@ class AutodotNode(template.Node):
             return "{{= %s_tmpl(%s) }}" % (self.model_name, model_var)
         else:
             if self.withsrc:
-                val = withsrc[1].resolve(context)
+                val = self.withsrc[1].resolve(context)
                 context.push()
-                context[self.name] = val
+                context[self.model_name] = val
                 output = self.nodelist.render(context)
                 context.pop()
             else:
                 output = self.nodelist.render(context)
-            context[model_name + "_js"] = self.script_tag
+            context[self.model_name + "_js"] = self.script_tag
             return output
         
         
