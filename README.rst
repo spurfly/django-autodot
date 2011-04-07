@@ -36,7 +36,7 @@ The {{ user_js }} would render as something like the following, but with newline
 
 	<script type="text/javascript">
 	user_tmpl = doT.template("
-		<div>{{=it.name }} 
+		<div>{{=it.name}} 
 	        {{ var icecream=it.favoriteicecream }}
 	        {{ for (phonetype in user.phonenumbers) { var phonenumber =  it.user.phonenumbers[phonetype]; }}
 	

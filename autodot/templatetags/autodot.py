@@ -44,12 +44,13 @@ def autodot(parser, token):
     if len(args) in (4, 5):
         if args[2] != "as":
             raise template.TemplateSyntaxError("%r tag with 3 or 4 arguments must be 'a as b'." % args[0])
-        withsrc = (args[1], parser.compile_filter(args[1]))
+        withsrc = args[1]
         args = args[:1] + args[3:]
     else:
         withsrc = None
         
     model_name = args[1]
+    varsrc = parser.compile_filter(withsrc or model_name)
     if len(args) == 3:
         mode = args[2]
         if not mode in (OUTPUT_FILE, OUTPUT_INLINE):
@@ -59,7 +60,7 @@ def autodot(parser, token):
         
     nodelist = parser.parse(('endautodot',))
     parser.delete_first_token()
-    return AutodotNode(nodelist, model_name, mode, withsrc)
+    return AutodotNode(nodelist, model_name, varsrc, mode, withsrc)
 
 class AutodotNode(template.Node):
     extension = ".js"
@@ -67,29 +68,43 @@ class AutodotNode(template.Node):
     template_name = "autodot/js.html"
     template_name_inline = "autodot/js_inline.html"
     
-    def __init__(self, nodelist, model_name, mode=OUTPUT_FILE, withsrc=None):
+    def __init__(self, nodelist, model_name, varsrc, mode=OUTPUT_FILE, withsrc=None):
         self.nodelist = nodelist
         self.model_name = model_name
         self.mode = mode
+        self.varsrc = varsrc
         self.withsrc = withsrc
         self.template = nodelist.render(Context({model_name: AutodotContextMember("it"),
                                          "AS_AUTODOT": True,
                                          }))
         self.js = """%s_tmpl = doT.template(%s);\n""" % (model_name, json.dumps(self.template))
         if self.mode == OUTPUT_FILE:
+            self.filepath = None
             self.save_file()
         
-    def save_file(self):
-        if self.storage.exists(self.new_filepath):
+    def save_file(self, content=None):
+        usecontent = content or self.js
+        filepath = self._new_filepath(content)
+        if self.storage.exists(filepath):
             return False
-        self.storage.save(self.new_filepath, ContentFile(self.js.encode("utf-8")))
+        self.storage.save(filepath, ContentFile(usecontent.encode("utf-8")))
         return True
     
     @property
     def new_filepath(self):
-        filename = "".join([self.hash, self.extension])
-        return os.path.join(
-            settings.OUTPUT_DIR.strip(os.sep), self.output_prefix, filename)
+        return self._new_filepath()
+    
+    def _new_filepath(self, content=None):
+        if content or not self.filepath:
+            usecontent = content or self.js
+            filename = "".join([self._hash(usecontent), self.extension])
+            filepath = os.path.join(
+                settings.OUTPUT_DIR.strip(os.sep), self.output_prefix, filename)
+            if not content:
+                self.filepath = filepath
+            return filepath
+        else:
+            return self.filepath
         
     @property
     def storage(self):
@@ -98,23 +113,32 @@ class AutodotNode(template.Node):
     
     @property
     def hash(self):
-        return get_hexdigest(self.template)[:12]
+        return self._hash()
+    
+    def _hash(self, content=None):
+        if not content:
+            content = self.js
+        return get_hexdigest(content)[:12]
     
     @property
     def script_tag(self):
+        return self._script_tag()
+    
+    def _script_tag(self, content=None):
+        usecontent = content or self.js
         if self.mode == OUTPUT_INLINE:
-            return render_to_string(self.template_name_inline, {'content': self.js})
+            return render_to_string(self.template_name_inline, {'content': usecontent})
         else:
-            return render_to_string(self.template_name, {'url': self.storage.url(self.new_filepath)})
+            return render_to_string(self.template_name, {'url': self.storage.url(self._new_filepath(content))})
             
     
     def render(self, context):
         if context.get("AS_AUTODOT", None):
-            model_var = self.withsrc[0] if self.withsrc else self.model_name
+            model_var = self.withsrc or self.model_name
             return "{{= %s_tmpl(%s) }}" % (self.model_name, model_var)
         else:
             if self.withsrc:
-                val = self.withsrc[1].resolve(context)
+                val = self.varsrc.resolve(context)
                 context.push()
                 context[self.model_name] = val
                 output = self.nodelist.render(context)
@@ -124,6 +148,56 @@ class AutodotNode(template.Node):
             context[self.model_name + "_js"] = self.script_tag
             return output
         
+
+@register.tag(name="autodot_test")
+def autodot_test(parser, token):
+    thenode = autodot(parser, token)
+    thenode.__class__ = AutodotTestNode
+    return thenode
+
+class AutodotTestNode(AutodotNode):
+    #def __init__(self, nodelist, model_name, varsrc, mode=OUTPUT_FILE, withsrc=None):
+    #    AutodotNode.__init__(self, nodelist, model_name, varsrc, mode, withsrc)
+        
+    def test_js(self, model_value):
+        """
+        Construct javascript which contains the of the model passed to Django, and
+        sees if doT produces the same template output.
+        """
+        return """
+        var autodot_testdata = %s,
+            autodot_js_output = %s_tmpl(autodot_testdata),
+            autodot_hash = "%s",
+            autodot_django_output = $("#%s_test_containingdiv" + autodot_hash).html(),
+            autodot_test_name = "%s";
+        if (_.equals(template_js_output, template_django_output) {
+            console.echo("Autodot template works: " + autodot_test_name + autodot_hash);
+        } else {
+            console.echo("Autodot template doesn't work: " + autodot_test_name + autodot_hash);
+        }
+        """ % (
+               json.dumps(model_value),
+               self.model_name, 
+               self.hash,
+               self.model_name,
+               self.model_name,
+               )
+        
+    def containing_div(self, contents):
+        return """<div id="%s_test_containingdiv%s">%s</div>""" % (
+                        self.model_name, self.hash, contents)
+        
+    def render(self, context):
+        output = AutodotNode.render(self, context)
+        if context.get("AS_AUTODOT", None):
+            return output
+        test_js = self.test_js(self.varsrc.resolve(context))
+        if self.mode == OUTPUT_FILE:
+            self.save_file(test_js)
+        if not context.get(self.model_name + "_tests",None):
+            context[self.model_name + "_tests"] = []
+        context[self.model_name + "_tests"].append(self._script_tag(test_js))
+        return self.containing_div(contents)
         
 class JsNode(object):
     def render(self, context):
@@ -195,23 +269,23 @@ class ForjsNode(JsNode, ForNode):
 
 class WithjsNode(JsNode, WithNode):
     def render_js(self, context):
-        seqname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
-        seq = seqname.split(".",1)
-        if len(seq) == 2:
-            root, branch = seq
+        varname = self.var.value.var.var #.TemplateLiteral.FilterExpression.Variable.string - intentionally brittle
+        var = varname.split(".",1)
+        if len(var) == 2:
+            root, branch = var
             try:
                 root = context.get(root)
             except:
                 pass
-            seq = ".".join((root, branch))
+            var = ".".join((root, branch))
         else:
             try:
-                seq = context.get(seq)
+                var = context.get(var)
             except:
                 pass
         assert len(loopvars) == 1
         return "{{ var %s=%s; }}%s{{ }; }}" % (
-                                    self.name, seq,
+                                    self.name, var,
                                      self.nodelist.render(context),
                                      )
 
