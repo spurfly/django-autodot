@@ -7,8 +7,8 @@ from django.template.defaulttags import IfNode, WithNode, ForNode, do_if, do_for
 from django.core.files.base import ContentFile
 
 #avoidable but non-problematic dependency on django-compressor
-from compressor.conf import settings
-from compressor.utils import get_hexdigest, get_mtime, get_class
+from autodot.conf import settings
+from autodot.utils import get_hexdigest, get_mtime, get_class
 
 OUTPUT_FILE = 'file'
 OUTPUT_INLINE = 'inline'
