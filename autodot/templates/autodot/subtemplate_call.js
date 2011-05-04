@@ -1,0 +1,1 @@
+{% templatetag openbrace %}= {{ model_name }}_tmpl({{ model_var|safe }}) {% templatetag closebrace %}

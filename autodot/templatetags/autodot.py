@@ -23,7 +23,7 @@ class AutodotContextMember(object):
         return self.__getattr__(key)
     
     def __getattr__(self, key):
-        return AuodotContextMember("%s.%s" % (self.name, key))
+        return AutodotContextMember("%s.%s" % (self.name, key))
     
     def __str__(self):
         return "{{=%s}}" % self.name
@@ -77,7 +77,8 @@ class AutodotNode(template.Node):
         self.template = nodelist.render(Context({model_name: AutodotContextMember("it"),
                                          "AS_AUTODOT": True,
                                          }))
-        self.js = """%s_tmpl = doT.template(%s);\n""" % (model_name, json.dumps(self.template))
+        self.js = render_to_string("autodot/autodot.js", dict(model_name=model_name, 
+                                                              dot_str=json.dumps(self.template)))
         if self.mode == OUTPUT_FILE:
             self.filepath = None
             self.save_file()
@@ -135,7 +136,8 @@ class AutodotNode(template.Node):
     def render(self, context):
         if context.get("AS_AUTODOT", None):
             model_var = self.withsrc or self.model_name
-            return "{{= %s_tmpl(%s) }}" % (self.model_name, model_var)
+            return render_to_string("autodot/subtemplate_call.js",dict(model_name=self.model_name, 
+                                                                       model_var=model_var))#"{{= %s_tmpl(%s) }}" % (self.model_name, model_var)
         else:
             if self.withsrc:
                 val = self.varsrc.resolve(context)
@@ -145,7 +147,9 @@ class AutodotNode(template.Node):
                 context.pop()
             else:
                 output = self.nodelist.render(context)
-            context[self.model_name + "_js"] = self.script_tag
+            print "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", self.model_name, self.script_tag
+            context.dicts[0][self.model_name + "_js"] = self.script_tag
+            print self.model_name + "_js", context[self.model_name + "_js"]
             return output
         
 
@@ -164,24 +168,28 @@ class AutodotTestNode(AutodotNode):
         Construct javascript which contains the of the model passed to Django, and
         sees if doT produces the same template output.
         """
-        return """
-        var autodot_testdata = %s,
-            autodot_js_output = %s_tmpl(autodot_testdata),
-            autodot_hash = "%s",
-            autodot_django_output = $("#%s_test_containingdiv" + autodot_hash).html(),
-            autodot_test_name = "%s";
-        if (_.equals(template_js_output, template_django_output) {
-            console.echo("Autodot template works: " + autodot_test_name + autodot_hash);
-        } else {
-            console.echo("Autodot template doesn't work: " + autodot_test_name + autodot_hash);
-        }
-        """ % (
-               json.dumps(model_value),
-               self.model_name, 
-               self.hash,
-               self.model_name,
-               self.model_name,
-               )
+        return render_to_string("autodot/tester.js", dict(
+                                                           test_data = json.dumps(model_value),
+                                                           model_name=self.model_name, 
+                                                           hash=self.hash))
+#        return """
+#        var autodot_testdata = %s,
+#            autodot_js_output = %s_tmpl(autodot_testdata),
+#            autodot_hash = "%s",
+#            autodot_django_output = $("#%s_test_containingdiv" + autodot_hash).html(),
+#            autodot_test_name = "%s";
+#        if (_.equals(template_js_output, template_django_output) {
+#            console.echo("Autodot template works: " + autodot_test_name + autodot_hash);
+#        } else {
+#            console.echo("Autodot template doesn't work: " + autodot_test_name + autodot_hash);
+#        }
+#        """ % (
+#               json.dumps(model_value),
+#               self.model_name, 
+#               self.hash,
+#               self.model_name,
+#               self.model_name,
+#               )
         
     def containing_div(self, contents):
         return """<div id="%s_test_containingdiv%s">%s</div>""" % (
