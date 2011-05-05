@@ -3,7 +3,6 @@ from shlex import split as cmd_split
 
 from autodot.cache import cache
 from autodot.conf import settings
-from compressor.exceptions import FilterError
 
 def get_hexdigest(plaintext):
     try:
@@ -30,24 +29,6 @@ def get_hashed_mtime(filename, length=12):
     filename = os.path.realpath(filename)
     mtime = str(int(get_mtime(filename)))
     return get_hexdigest(mtime)[:length]
-
-
-def get_class(class_string, exception=FilterError):
-    """
-    Convert a string version of a function name to the callable object.
-    """
-
-    if not hasattr(class_string, '__bases__'):
-
-        try:
-            class_string = class_string.encode('ascii')
-            mod_name, class_name = get_mod_func(class_string)
-            if class_name != '':
-                cls = getattr(__import__(mod_name, {}, {}, ['']), class_name)
-        except (ImportError, AttributeError):
-            raise exception('Failed to import filter %s' % class_string)
-
-    return cls
 
 
 def get_mod_func(callback):
